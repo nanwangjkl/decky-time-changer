@@ -2,6 +2,10 @@
 
 [English](README.md)
 
+<p align="center">
+  <img src="assets/promo.png" width="256" alt="Time Changer 插件图标" />
+</p>
+
 一个 [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) 插件：在游戏模式下一键修改 Steam Deck 系统时间 —— 快捷偏移、自定义日期时间、一键恢复 NTP 校准。
 
 无需切换桌面模式、无需终端，直接在快捷菜单（QAM）里操作。适合有日期触发内容的游戏（每日活动、日期成就）、依赖现实时钟的模拟器游戏，以及开发测试。

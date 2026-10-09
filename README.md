@@ -2,6 +2,10 @@
 
 [简体中文](README.zh-CN.md)
 
+<p align="center">
+  <img src="assets/promo.png" width="256" alt="Time Changer plugin artwork" />
+</p>
+
 A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin to change the Steam Deck's system time from Game Mode — quick time offsets, a custom date & time picker, and one-click NTP restore.
 
 No desktop mode, no terminal: shift the clock right from the Quick Access Menu. Useful for games with date-triggered content (daily events, date-dependent achievements), emulator titles with real-clock mechanics, or testing.
