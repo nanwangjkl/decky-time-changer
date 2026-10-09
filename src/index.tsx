@@ -48,6 +48,8 @@ function numOptions(from: number, to: number): DropdownOption[] {
 
 function Content() {
   const t = useMemo(() => makeT(detectLang()), []);
+  // computed once: anchor for the year dropdown window (±5 years)
+  const yearBase = useMemo(() => new Date().getFullYear(), []);
 
   const fmtOffset = (delta: number): string => {
     const sign = delta >= 0 ? "+" : "-";
@@ -144,8 +146,17 @@ function Content() {
     );
 
   // clamp day when year/month changes across months of different length
-  const daysInMonth = new Date(year, month, 0).getDate();
+  const daysInMonth = useMemo(() => new Date(year, month, 0).getDate(), [year, month]);
   const effDay = Math.min(day, daysInMonth);
+
+  // Steam's Dropdown resets its selection when the rgOptions array identity
+  // changes, so all option lists must be referentially stable; the fixed year
+  // window (current year ±5, computed once) also keeps yearOpts stable.
+  const yearOpts = useMemo(() => numOptions(yearBase - 5, yearBase + 5), [yearBase]);
+  const monthOpts = useMemo(() => numOptions(1, 12), []);
+  const dayOpts = useMemo(() => numOptions(1, daysInMonth), [daysInMonth]);
+  const hourOpts = useMemo(() => numOptions(0, 23), []);
+  const minuteOpts = useMemo(() => numOptions(0, 59), []);
 
   const onSetCustom = () => {
     const target = new Date(year, month - 1, effDay, hour, minute);
@@ -193,13 +204,13 @@ function Content() {
         <PanelSectionRow>
           <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
-              <Dropdown rgOptions={numOptions(year - 5, year + 5)} selectedOption={year} onChange={(o) => setYear(o.data)} disabled={busy} menuLabel={t("date.year")} />
-              <Dropdown rgOptions={numOptions(1, 12)} selectedOption={month} onChange={(o) => setMonth(o.data)} disabled={busy} menuLabel={t("date.month")} />
-              <Dropdown rgOptions={numOptions(1, daysInMonth)} selectedOption={effDay} onChange={(o) => setDay(o.data)} disabled={busy} menuLabel={t("date.day")} />
+              <Dropdown key={`y-${year}`} rgOptions={yearOpts} selectedOption={year} onChange={(o) => setYear(o.data)} disabled={busy} menuLabel={t("date.year")} />
+              <Dropdown key={`m-${month}`} rgOptions={monthOpts} selectedOption={month} onChange={(o) => setMonth(o.data)} disabled={busy} menuLabel={t("date.month")} />
+              <Dropdown key={`d-${effDay}-${daysInMonth}`} rgOptions={dayOpts} selectedOption={effDay} onChange={(o) => setDay(o.data)} disabled={busy} menuLabel={t("date.day")} />
             </Focusable>
             <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
-              <Dropdown rgOptions={numOptions(0, 23)} selectedOption={hour} onChange={(o) => setHour(o.data)} disabled={busy} menuLabel={t("date.hour")} />
-              <Dropdown rgOptions={numOptions(0, 59)} selectedOption={minute} onChange={(o) => setMinute(o.data)} disabled={busy} menuLabel={t("date.minute")} />
+              <Dropdown key={`h-${hour}`} rgOptions={hourOpts} selectedOption={hour} onChange={(o) => setHour(o.data)} disabled={busy} menuLabel={t("date.hour")} />
+              <Dropdown key={`min-${minute}`} rgOptions={minuteOpts} selectedOption={minute} onChange={(o) => setMinute(o.data)} disabled={busy} menuLabel={t("date.minute")} />
             </Focusable>
           </Focusable>
         </PanelSectionRow>
