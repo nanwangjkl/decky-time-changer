@@ -1,0 +1,42 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "group": "build",
+            "detail": "Build frontend to dist/",
+            "command": "pnpm install && pnpm run build",
+            "type": "shell",
+            "problemMatcher": []
+        },
+        {
+            "label": "deploy",
+            "detail": "Build, rsync to Deck and restart plugin_loader",
+            "type": "shell",
+            "command": "DECK_IP=${config:deckip} DECK_PORT=${config:deckport} DECK_USER=${config:deckuser} DECK_PASS=${config:deckpass} DECK_KEY=${config:deckkey} ${workspaceFolder}/deploy.sh deploy",
+            "dependsOn": ["settingscheck"],
+            "problemMatcher": []
+        },
+        {
+            "label": "restart-decky",
+            "detail": "Restart plugin_loader on the Deck",
+            "type": "shell",
+            "command": "DECK_IP=${config:deckip} DECK_PORT=${config:deckport} DECK_USER=${config:deckuser} DECK_PASS=${config:deckpass} DECK_KEY=${config:deckkey} ${workspaceFolder}/deploy.sh restart",
+            "problemMatcher": []
+        },
+        {
+            "label": "zip",
+            "detail": "Package a store-style installable zip into out/",
+            "type": "shell",
+            "command": "${workspaceFolder}/deploy.sh zip",
+            "problemMatcher": []
+        },
+        {
+            "label": "settingscheck",
+            "detail": "Ensure .vscode/settings.json exists (copied from defsettings.json)",
+            "type": "shell",
+            "command": "test -f ${workspaceFolder}/.vscode/settings.json || (cp ${workspaceFolder}/.vscode/defsettings.json ${workspaceFolder}/.vscode/settings.json && echo 'Created .vscode/settings.json with defaults - edit deckip/deckpass then run again' && exit 1)",
+            "problemMatcher": []
+        }
+    ]
+}
