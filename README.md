@@ -1,57 +1,76 @@
-# Time Changer (decky-time-changer)
+# Time Changer for Steam Deck
 
-一个 Decky Loader 插件：在 Steam Deck 上一键修改系统时间。
+[简体中文](README.zh-CN.md)
 
-功能：
+A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin to change the Steam Deck's system time from Game Mode — quick time offsets, a custom date & time picker, and one-click NTP restore.
 
-- 显示当前系统时间与 NTP 同步状态
-- 快捷偏移：+1小时 / +6小时 / +12小时 / +1天 / +7天 / -1小时 / -1天
-- 滑条按偏移量调整（±30 天，步长 1 小时），实时预览目标时间
-- 自定义精确时间（`YYYY-MM-DD HH:MM`）
-- 一键恢复真实时间（重新开启 NTP 自动校准）
+No desktop mode, no terminal: shift the clock right from the Quick Access Menu. Useful for games with date-triggered content (daily events, date-dependent achievements), emulator titles with real-clock mechanics, or testing.
 
-原理：后端以 root 运行（`plugin.json` 中 `flags: ["root"]`），调用
-`timedatectl set-ntp false` + `timedatectl set-time @<epoch>` 修改系统时间；
-恢复时 `timedatectl set-ntp true`。
+## Features
 
-## 开发环境
+- Live system clock with NTP sync status
+- Quick offsets: ±30 min / ±1 hour
+- Custom date & time picker — defaults to the current time, handles month lengths and leap years
+- One-click restore to real time (re-enables NTP auto-sync)
+- UI in English and 简体中文, following your Steam client language
 
-- Node.js ≥ 18、pnpm ≥ 8、Python 3（本机仅需构建前端，后端在 Deck 上运行）
+## How It Works
 
-## 构建与部署
+The Python backend runs as root (`plugin.json` → `flags: ["root"]`) and wraps `timedatectl`:
 
-1. 复制 `.vscode/defsettings.json` 为 `.vscode/settings.json`（或项目根 `.deploy.env`），
-   填入 Deck 的 IP、密码或 SSH key。
-2. 命令行部署：
+| Action | Commands |
+|---|---|
+| Set time | `timedatectl set-ntp false` → `timedatectl set-time @<epoch>` (UTC seconds, timezone-independent) |
+| Restore | `timedatectl set-ntp true` — systemd-timesyncd resyncs once online |
 
-   ```bash
-   ./deploy.sh          # 构建 + rsync 到 Deck + 重启 plugin_loader
-   ./deploy.sh zip      # 打包可手动安装的 zip 到 out/
-   ./deploy.sh restart  # 仅重启 Deck 上的 plugin_loader
-   ```
+## Install
 
-   或在 VSCode 中运行任务 `build` / `deploy` / `restart-decky`。
+### From URL (recommended, no desktop mode needed)
 
-3. 在 Deck 上打开快捷菜单（...）→ 插件图标 → Time Changer。
+1. Download `decky-time-changer-v*.zip` from [Releases](../../releases), or serve it from any HTTP host your Deck can reach
+2. On the Deck, open the Decky menu → ⚙️ settings → **GENERAL** → **DEVELOPER** (enable Developer Mode first if hidden)
+3. Click **Install plugin from URL** and paste the zip URL
 
-首次部署前需要：
+### From source
 
-- Deck 上已安装 Decky Loader，并开启了 SSH（桌面模式设置中开启）。
-- 本机能 SSH 到 Deck（推荐 `ssh-copy-id deck@<deck-ip>` 免密；或安装 sshpass 使用密码）。
+```bash
+git clone <this-repo> && cd decky-time-changer
+pnpm install && pnpm run build   # produces dist/
+./deploy.sh zip                  # packages out/decky-time-changer-v*.zip
+```
 
-## 注意事项 / 风险
+## Warnings
 
-- **修改时间后 HTTPS 可能失效**：时间偏差过大时 TLS 证书校验失败，Steam
-  商店/联网功能可能异常，属正常现象，恢复真实时间即可。
-- **恢复需要联网**：NTP 校准依赖网络；无网络时只会重新开启 NTP，等联网后自动校准。
-- Steam 客户端内显示的时间可能需要重启 Steam 才刷新（系统时间已实际改变）。
+- **While the clock is skewed, HTTPS validation fails** — Steam store and online features may break. This is expected; click *Restore Real Time* to fix.
+- Restore requires network connectivity (NTP needs to reach a time server).
+- The Steam client may keep displaying the old time until restarted; the system clock itself is changed immediately.
+- Setting time automatically disables NTP so the system doesn't snap back — the plugin shows a "manual time" state so you don't forget.
 
-## 项目结构
+## Development
+
+Requirements: Node ≥ 18, pnpm ≥ 8, Python 3 (backend only runs on the Deck).
+
+```bash
+./deploy.sh          # build + rsync to Deck + restart plugin_loader
+./deploy.sh zip      # package an installable zip into out/
+./deploy.sh restart  # restart plugin_loader on the Deck only
+```
+
+Connection settings come from environment variables (`DECK_IP`, `DECK_USER`, `DECK_PORT`, `DECK_KEY`/`DECK_PASS`) or a `.deploy.env` file — see `deploy.sh`. VSCode tasks (`build` / `deploy` / `restart-decky` / `zip`) are also available in `.vscode/tasks.json`.
+
+Backend logs: `~/homebrew/logs/decky-time-changer/plugin.log` on the Deck.
+
+### Project structure
 
 ```
-plugin.json   插件元数据（flags 含 root）
-main.py       Python 后端（timedatectl 封装）
-src/index.tsx 前端 UI（@decky/ui）
-dist/         前端构建产物（rollup）
-deploy.sh     构建部署脚本
+plugin.json        plugin metadata (root flag)
+main.py            Python backend — timedatectl wrapper
+src/index.tsx      frontend UI (@decky/ui)
+src/translations.ts  en / zh-CN dictionaries
+dist/              frontend build output (rollup)
+deploy.sh          build & deploy script
 ```
+
+## License
+
+BSD 3-Clause — see [LICENSE](LICENSE).
