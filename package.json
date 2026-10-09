@@ -1,6 +1,6 @@
 {
   "name": "decky-time-changer",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Decky plugin to quickly change the Steam Deck system time",
   "type": "module",
   "scripts": {

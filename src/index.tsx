@@ -201,11 +201,6 @@ function Content() {
             设置为此时间
           </ButtonItem>
         </PanelSectionRow>
-        <PanelSectionRow>
-          <ButtonItem layout="below" disabled={busy} onClick={() => epoch !== undefined && syncToNow(epoch)}>
-            重置为当前时间
-          </ButtonItem>
-        </PanelSectionRow>
       </PanelSection>
 
       <PanelSection title="恢复">
