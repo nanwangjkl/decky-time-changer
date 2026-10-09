@@ -45,34 +45,66 @@ def _run(*args: str) -> str:
     return (proc.stdout or "").strip()
 
 
+def _get_status() -> dict:
+    # --property filters the output; it does not determine its line order.
+    out = _run("show", "-p", "NTP", "-p", "NTPSynchronized", "-p", "Timezone")
+    properties = {}
+    for line in out.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            properties[key.strip()] = value.strip()
+    if (
+        properties.get("NTP") not in ("yes", "no")
+        or properties.get("NTPSynchronized") not in ("yes", "no")
+        or not properties.get("Timezone")
+    ):
+        raise TimeCommandError(f"unexpected timedatectl output: {out[:200]!r}")
+    return {
+        "ok": True,
+        "epoch": int(time.time()),
+        "ntp_enabled": properties["NTP"] == "yes",
+        "ntp_synced": properties["NTPSynchronized"] == "yes",
+        "timezone": properties["Timezone"],
+    }
+
+
 def _set_time_epoch(epoch: int) -> None:
-    # NTP must be off first, otherwise set-time fails with
-    # "Automatic time synchronization is enabled"
-    _run("set-ntp", "false")
-    # "@<seconds>" is parsed as UTC epoch, independent of the local timezone
-    _run("set-time", f"@{int(epoch)}")
+    ntp_was_enabled = _get_status()["ntp_enabled"]
+    try:
+        # NTP must be off first, otherwise set-time fails with
+        # "Automatic time synchronization is enabled".
+        _run("set-ntp", "false")
+        # "@<seconds>" is parsed as UTC epoch, independent of the local timezone.
+        _run("set-time", f"@{int(epoch)}")
+    except Exception as set_error:
+        if ntp_was_enabled:
+            try:
+                _run("set-ntp", "true")
+            except Exception as restore_error:
+                raise TimeCommandError(
+                    f"{set_error}; restoring NTP failed: {restore_error}"
+                ) from set_error
+        raise
 
 
-def _error(e: Exception) -> dict:
+def _error(e: Exception, refresh_status: bool = False) -> dict:
     decky.logger.exception("timedatectl call failed")
-    return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    result = {}
+    if refresh_status:
+        try:
+            result = _get_status()
+        except Exception:
+            # Preserve the operation's original error if status cannot be read.
+            pass
+    result.update(ok=False, error=f"{type(e).__name__}: {e}")
+    return result
 
 
 class Plugin:
     async def get_status(self) -> dict:
         """Return current epoch, NTP state and timezone."""
         try:
-            out = _run("show", "--value", "-p", "NTP", "-p", "NTPSynchronized", "-p", "Timezone")
-            values = [line.strip() for line in out.splitlines() if line.strip()]
-            if len(values) < 3:
-                raise TimeCommandError(f"unexpected timedatectl output: {out[:200]!r}")
-            return {
-                "ok": True,
-                "epoch": int(time.time()),
-                "ntp_enabled": values[0] == "yes",
-                "ntp_synced": values[1] == "yes",
-                "timezone": values[2],
-            }
+            return _get_status()
         except Exception as e:
             return _error(e)
 
@@ -83,7 +115,7 @@ class Plugin:
             decky.logger.info("System time set to %s", epoch)
             return await self.get_status()
         except Exception as e:
-            return _error(e)
+            return _error(e, refresh_status=True)
 
     async def shift_time(self, delta_seconds: int) -> dict:
         """Shift the system clock by delta_seconds relative to the backend's clock."""
@@ -93,7 +125,7 @@ class Plugin:
             decky.logger.info("System time shifted by %ss to %s", delta_seconds, target)
             return await self.get_status()
         except Exception as e:
-            return _error(e)
+            return _error(e, refresh_status=True)
 
     async def restore_time(self) -> dict:
         """Re-enable NTP so systemd-timesyncd resyncs to real time (needs network)."""
@@ -102,7 +134,7 @@ class Plugin:
             decky.logger.info("NTP re-enabled")
             return await self.get_status()
         except Exception as e:
-            return _error(e)
+            return _error(e, refresh_status=True)
 
     async def _main(self):
         decky.logger.info(

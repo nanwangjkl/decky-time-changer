@@ -22,6 +22,16 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and run regression tests
+        run: pnpm run check
+
       # deploy.sh zip builds the frontend and packages out/*.zip
       - name: Build and package plugin zip
         run: ./deploy.sh zip

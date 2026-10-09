@@ -16,7 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-if [[ -f .deploy.env ]]; then
+if [[ "${1:-deploy}" != zip && -f .deploy.env ]]; then
   # shellcheck disable=SC1091
   source .deploy.env
 fi
@@ -24,31 +24,29 @@ fi
 DECK_USER="${DECK_USER:-deck}"
 DECK_PORT="${DECK_PORT:-22}"
 PLUGIN_DIR_NAME="decky-time-changer"
-REMOTE_PLUGINS_DIR="\$HOME/homebrew/plugins"
+# SSH starts in the remote user's home. Relative paths also avoid rsync treating
+# a quoted literal "$HOME" as part of a directory name.
+REMOTE_PLUGINS_DIR="homebrew/plugins"
 
+SSH_COMMAND=(ssh)
 SSH_ARGS=(-p "$DECK_PORT")
 if [[ -n "${DECK_KEY:-}" ]]; then
   SSH_ARGS+=(-i "$DECK_KEY")
 elif command -v sshpass >/dev/null 2>&1 && [[ -n "${DECK_PASS:-}" ]]; then
-  SSH_ARGS+=( -o PreferredAuthentications=password)
-else
-  SSH_ARGS+=()
+  SSH_COMMAND=(sshpass -e ssh)
+  export SSHPASS="$DECK_PASS"
+  SSH_ARGS+=(-o PreferredAuthentications=password)
 fi
 
 remote() {
-  if [[ -n "${DECK_KEY:-}" ]]; then
-    ssh "${SSH_ARGS[@]}" "$DECK_USER@$DECK_IP" "$@"
-  elif command -v sshpass >/dev/null 2>&1 && [[ -n "${DECK_PASS:-}" ]]; then
-    sshpass -p "$DECK_PASS" ssh "${SSH_ARGS[@]}" "$DECK_USER@$DECK_IP" "$@"
-  else
-    ssh "${SSH_ARGS[@]}" "$DECK_USER@$DECK_IP" "$@"
-  fi
+  "${SSH_COMMAND[@]}" "${SSH_ARGS[@]}" "$DECK_USER@$DECK_IP" "$@"
 }
 
 remote_sudo() {
   # run a command as root on the Deck (needs DECK_PASS, or NOPASSWD sudo)
   if [[ -n "${DECK_PASS:-}" ]]; then
-    remote "printf '%s\n' '$DECK_PASS' | sudo -S -p '' $*"
+    # Send the password as input, so quotes and shell metacharacters stay data.
+    printf '%s\n' "$DECK_PASS" | remote "sudo -S -p '' $*"
   else
     remote "sudo -n $*"
   fi
@@ -56,18 +54,23 @@ remote_sudo() {
 
 build() {
   echo "==> Building frontend"
-  pnpm install --silent
+  pnpm install --frozen-lockfile --silent
   pnpm run build
 }
 
 deploy() {
+  : "${DECK_IP:?Set DECK_IP to the Steam Deck hostname or IP}"
   build
   echo "==> Deploying to $DECK_USER@$DECK_IP"
-  RSYNC_RSH="$(printf '%q ' ssh "${SSH_ARGS[@]}")"
+  RSYNC_RSH=""
+  for arg in "${SSH_COMMAND[@]}" "${SSH_ARGS[@]}"; do
+    # rsync's command parser supports quoted arguments with doubled quotes.
+    RSYNC_RSH+="\"${arg//\"/\"\"}\" "
+  done
   export RSYNC_RSH
   rsync -azp --delete \
     plugin.json package.json main.py README.md LICENSE dist py_modules \
-    --rsync-path="mkdir -p $REMOTE_PLUGINS_DIR/$PLUGIN_DIR_NAME" \
+    --rsync-path="mkdir -p $REMOTE_PLUGINS_DIR/$PLUGIN_DIR_NAME && rsync" \
     "$DECK_USER@$DECK_IP:$REMOTE_PLUGINS_DIR/$PLUGIN_DIR_NAME/"
   echo "==> Restarting plugin_loader"
   remote_sudo "systemctl restart plugin_loader"
@@ -88,6 +91,7 @@ package_zip() {
 }
 
 restart_only() {
+  : "${DECK_IP:?Set DECK_IP to the Steam Deck hostname or IP}"
   echo "==> Restarting plugin_loader"
   remote_sudo "systemctl restart plugin_loader"
 }

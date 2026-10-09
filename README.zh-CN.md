@@ -51,6 +51,7 @@ pnpm install && pnpm run build   # 产出 dist/
 环境要求：Node ≥ 18、pnpm ≥ 8、Python 3（后端仅在 Deck 上运行）。
 
 ```bash
+pnpm run check      # 类型检查 + 前后端/部署回归测试 + Shell 语法检查
 ./deploy.sh          # 构建 + rsync 到 Deck + 重启 plugin_loader
 ./deploy.sh zip      # 打包可安装的 zip 到 out/
 ./deploy.sh restart  # 仅重启 Deck 上的 plugin_loader
@@ -59,6 +60,8 @@ pnpm install && pnpm run build   # 产出 dist/
 连接参数来自环境变量（`DECK_IP`、`DECK_USER`、`DECK_PORT`、`DECK_KEY`/`DECK_PASS`）或 `.deploy.env` 文件，详见 `deploy.sh`；也可使用 `.vscode/tasks.json` 中的 VSCode 任务。
 
 后端日志在 Deck 上：`~/homebrew/logs/decky-time-changer/plugin.log`。
+
+回归测试使用模拟的 Decky API、系统命令和 SSH，不会修改本机或 Deck 的系统时间。
 
 ### 项目结构
 

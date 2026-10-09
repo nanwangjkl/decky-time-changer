@@ -8,7 +8,7 @@ import {
   staticClasses,
 } from "@decky/ui";
 import { callable, definePlugin, toaster, useQuickAccessVisible } from "@decky/api";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FaClock } from "react-icons/fa";
 import type { DropdownOption } from "@decky/ui";
 import { detectLang, makeT } from "./translations";
@@ -29,6 +29,7 @@ const restoreTime = callable<[], TimeStatus>("restore_time");
 
 const MINUTE = 60;
 const HOUR = 3600;
+const STATUS_INTERVAL = 5000;
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
@@ -80,6 +81,8 @@ function Content() {
   const [ntpSynced, setNtpSynced] = useState<boolean | undefined>();
   const [timezone, setTimezone] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const operationInFlight = useRef(false);
+  const statusVersion = useRef(0);
 
   // custom datetime picker state, defaults to current time once loaded
   const [year, setYear] = useState(new Date().getFullYear());
@@ -89,17 +92,18 @@ function Content() {
   const [minute, setMinute] = useState(new Date().getMinutes());
   const initialized = useRef(false);
 
-  const syncToNow = (nowEpoch: number) => {
+  const syncToNow = useCallback((nowEpoch: number) => {
     const d = new Date(nowEpoch * 1000);
     setYear(d.getFullYear());
     setMonth(d.getMonth() + 1);
     setDay(d.getDate());
     setHour(d.getHours());
     setMinute(d.getMinutes());
-  };
+  }, []);
 
-  const applyStatus = (res: TimeStatus) => {
-    if (res.ok && res.epoch !== undefined) {
+  const applyStatus = useCallback((res: TimeStatus, reportError = true) => {
+    // Failed operations may still include the actual state after NTP rollback.
+    if (res.epoch !== undefined) {
       setEpoch(res.epoch);
       setNtpEnabled(res.ntp_enabled);
       setNtpSynced(res.ntp_synced);
@@ -108,35 +112,58 @@ function Content() {
         initialized.current = true;
         syncToNow(res.epoch);
       }
-    } else {
+    }
+    if (!res.ok && reportError) {
       toaster.toast({ title: t("toast.failure"), body: res.error ?? t("toast.unknownError") });
     }
-  };
+  }, [syncToNow, t]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || busy) return;
     let active = true;
-    (async () => {
+    let inFlight = false;
+    let errorReported = false;
+    const refresh = async () => {
+      if (inFlight || operationInFlight.current) return;
+      inFlight = true;
+      const version = statusVersion.current;
       try {
         const res = await getStatus();
-        if (active) applyStatus(res);
-      } catch (e) {
-        if (active) {
-          toaster.toast({ title: t("toast.failure"), body: String(e) });
+        if (active && version === statusVersion.current) {
+          applyStatus(res, !errorReported);
+          errorReported = !res.ok;
         }
+      } catch (e) {
+        if (active && version === statusVersion.current && !errorReported) {
+          toaster.toast({ title: t("toast.failure"), body: String(e) });
+          errorReported = true;
+        }
+      } finally {
+        inFlight = false;
       }
-    })();
-    const timer = setInterval(() => {
-      setEpoch((e) => (e === undefined ? e : e + 1));
-    }, 1000);
+    };
+    void refresh();
+    // NTP can adjust the clock after restore_time has already returned.
+    const timer = setInterval(refresh, STATUS_INTERVAL);
     return () => {
       active = false;
       clearInterval(timer);
     };
+  }, [visible, busy, applyStatus, t]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setInterval(() => {
+      setEpoch((e) => (e === undefined ? e : e + 1));
+    }, 1000);
+    return () => clearInterval(timer);
   }, [visible]);
 
   const run = async (fn: () => Promise<TimeStatus>, successMsg: (res: TimeStatus) => string) => {
-    if (busy) return;
+    if (operationInFlight.current) return;
+    operationInFlight.current = true;
+    // Ignore reads started before this operation, even if responses arrive late.
+    statusVersion.current++;
     setBusy(true);
     try {
       const res = await fn();
@@ -147,6 +174,8 @@ function Content() {
     } catch (e) {
       toaster.toast({ title: t("toast.failure"), body: String(e) });
     } finally {
+      statusVersion.current++;
+      operationInFlight.current = false;
       setBusy(false);
     }
   };
@@ -168,8 +197,10 @@ function Content() {
   const dayOpts = useMemo(() => numOptions(1, daysInMonth), [daysInMonth]);
   const hourOpts = useMemo(() => numOptions(0, 23), []);
   const minuteOpts = useMemo(() => numOptions(0, 59), []);
+  const pickerDisabled = busy || epoch === undefined;
 
   const onSetCustom = () => {
+    if (pickerDisabled) return;
     const target = new Date(year, month - 1, effDay, hour, minute);
     const targetEpoch = Math.floor(target.getTime() / 1000);
     run(
@@ -188,13 +219,13 @@ function Content() {
             {epoch !== undefined ? fmt(epoch) : t("panel.current.loading")}
           </div>
           <div style={{ textAlign: "center", opacity: 0.7, fontSize: "0.85em" }}>
-            {ntpSynced === undefined
+            {ntpEnabled === undefined
               ? ""
-              : ntpSynced
+              : !ntpEnabled
+                ? t("panel.current.manual", { timezone: timezone ?? "" })
+                : ntpSynced
                 ? t("panel.current.ntpSynced")
-                : ntpEnabled
-                  ? t("panel.current.ntpEnabled")
-                  : t("panel.current.manual", { timezone: timezone ?? "" })}
+                : t("panel.current.ntpEnabled")}
           </div>
         </PanelSectionRow>
       </PanelSection>
@@ -215,18 +246,18 @@ function Content() {
         <PanelSectionRow>
           <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
-              <Dropdown rgOptions={yearOpts} selectedOption={year} onChange={(o) => setYear(o.data)} disabled={busy} menuLabel={t("date.year")} />
-              <Dropdown rgOptions={monthOpts} selectedOption={month} onChange={(o) => setMonth(o.data)} disabled={busy} menuLabel={t("date.month")} />
-              <Dropdown rgOptions={dayOpts} selectedOption={effDay} onChange={(o) => setDay(o.data)} disabled={busy} menuLabel={t("date.day")} />
+              <Dropdown rgOptions={yearOpts} selectedOption={year} onChange={(o) => setYear(o.data)} disabled={pickerDisabled} menuLabel={t("date.year")} />
+              <Dropdown rgOptions={monthOpts} selectedOption={month} onChange={(o) => setMonth(o.data)} disabled={pickerDisabled} menuLabel={t("date.month")} />
+              <Dropdown rgOptions={dayOpts} selectedOption={effDay} onChange={(o) => setDay(o.data)} disabled={pickerDisabled} menuLabel={t("date.day")} />
             </Focusable>
             <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
-              <Dropdown rgOptions={hourOpts} selectedOption={hour} onChange={(o) => setHour(o.data)} disabled={busy} menuLabel={t("date.hour")} />
-              <Dropdown rgOptions={minuteOpts} selectedOption={minute} onChange={(o) => setMinute(o.data)} disabled={busy} menuLabel={t("date.minute")} />
+              <Dropdown rgOptions={hourOpts} selectedOption={hour} onChange={(o) => setHour(o.data)} disabled={pickerDisabled} menuLabel={t("date.hour")} />
+              <Dropdown rgOptions={minuteOpts} selectedOption={minute} onChange={(o) => setMinute(o.data)} disabled={pickerDisabled} menuLabel={t("date.minute")} />
             </Focusable>
           </Focusable>
         </PanelSectionRow>
         <PanelSectionRow>
-          <ButtonItem layout="below" disabled={busy} onClick={onSetCustom}>
+          <ButtonItem layout="below" disabled={pickerDisabled} onClick={onSetCustom}>
             {t("action.set")}
           </ButtonItem>
         </PanelSectionRow>

@@ -1,11 +1,14 @@
 {
   "name": "decky-time-changer",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Decky Loader plugin to change the Steam Deck's system time from Game Mode — quick time offsets, custom date & time picker, and one-click NTP restore.",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
-    "watch": "rollup -c -w"
+    "watch": "rollup -c -w",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/frontend.test.cjs && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "check": "pnpm run typecheck && pnpm test && bash -n deploy.sh"
   },
   "repository": {
     "type": "git",
@@ -24,6 +27,9 @@
     "@decky/ui": "^4.11.0",
     "@types/react": "19.1.1",
     "@types/react-dom": "19.1.1",
+    "@types/react-router": "5.1.20",
+    "react": "19.3.0",
+    "react-test-renderer": "19.3.0",
     "rollup": "^4.53.3",
     "typescript": "^5.6.2"
   },

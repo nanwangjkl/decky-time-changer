@@ -51,6 +51,7 @@ pnpm install && pnpm run build   # produces dist/
 Requirements: Node ≥ 18, pnpm ≥ 8, Python 3 (backend only runs on the Deck).
 
 ```bash
+pnpm run check      # typecheck, frontend/backend/deploy regression tests, shell syntax
 ./deploy.sh          # build + rsync to Deck + restart plugin_loader
 ./deploy.sh zip      # package an installable zip into out/
 ./deploy.sh restart  # restart plugin_loader on the Deck only
@@ -59,6 +60,8 @@ Requirements: Node ≥ 18, pnpm ≥ 8, Python 3 (backend only runs on the Deck).
 Connection settings come from environment variables (`DECK_IP`, `DECK_USER`, `DECK_PORT`, `DECK_KEY`/`DECK_PASS`) or a `.deploy.env` file — see `deploy.sh`. VSCode tasks (`build` / `deploy` / `restart-decky` / `zip`) are also available in `.vscode/tasks.json`.
 
 Backend logs: `~/homebrew/logs/decky-time-changer/plugin.log` on the Deck.
+
+Regression tests mock the Decky API, system commands, and SSH; they do not change the local or Deck system clock.
 
 ### Project structure
 
