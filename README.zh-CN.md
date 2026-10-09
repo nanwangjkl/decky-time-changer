@@ -34,7 +34,7 @@ Python 后端以 root 运行（`plugin.json` 中 `flags: ["root"]`），封装 `
 ### 从源码构建
 
 ```bash
-git clone <this-repo> && cd decky-time-changer
+git clone https://github.com/nanwangjkl/decky-time-changer.git && cd decky-time-changer
 pnpm install && pnpm run build   # 产出 dist/
 ./deploy.sh zip                  # 打包 out/decky-time-changer-v*.zip
 ```

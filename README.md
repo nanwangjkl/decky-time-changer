@@ -34,7 +34,7 @@ The Python backend runs as root (`plugin.json` → `flags: ["root"]`) and wraps 
 ### From source
 
 ```bash
-git clone <this-repo> && cd decky-time-changer
+git clone https://github.com/nanwangjkl/decky-time-changer.git && cd decky-time-changer
 pnpm install && pnpm run build   # produces dist/
 ./deploy.sh zip                  # packages out/decky-time-changer-v*.zip
 ```
