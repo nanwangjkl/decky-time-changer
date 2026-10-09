@@ -3,7 +3,7 @@
 [English](README.md)
 
 <p align="center">
-  <img src="assets/promo.png" width="256" alt="Time Changer 插件图标" />
+  <img src="assets/demo.png" width="512" alt="Time Changer 插件图标" />
 </p>
 
 一个 [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) 插件：在游戏模式下一键修改 Steam Deck 系统时间 —— 快捷偏移、自定义日期时间、一键恢复 NTP 校准。
