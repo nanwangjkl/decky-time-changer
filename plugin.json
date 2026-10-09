@@ -2,5 +2,10 @@
   "name": "Time Changer",
   "author": "nanwangjkl",
   "flags": ["root"],
-  "api_version": 1
+  "api_version": 1,
+  "publish": {
+    "tags": ["utility", "time", "system"],
+    "description": "Change the system time from Game Mode: quick offsets, custom date & time picker, and one-click NTP restore.",
+    "image": "https://raw.githubusercontent.com/nanwangjkl/decky-time-changer/main/assets/promo.png"
+  }
 }
