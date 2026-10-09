@@ -1,16 +1,16 @@
 import {
   ButtonItem,
   DialogButton,
+  Dropdown,
   Focusable,
   PanelSection,
   PanelSectionRow,
-  SliderField,
   staticClasses,
-  TextField,
 } from "@decky/ui";
 import { callable, definePlugin, toaster } from "@decky/api";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FaClock } from "react-icons/fa";
+import type { DropdownOption } from "@decky/ui";
 
 interface TimeStatus {
   ok: boolean;
@@ -26,17 +26,14 @@ const setTime = callable<[epoch: number], TimeStatus>("set_time");
 const shiftTime = callable<[delta: number], TimeStatus>("shift_time");
 const restoreTime = callable<[], TimeStatus>("restore_time");
 
+const MINUTE = 60;
 const HOUR = 3600;
-const DAY = 24 * HOUR;
 
 const QUICK_OFFSETS: Array<{ label: string; delta: number }> = [
+  { label: "+30分钟", delta: 30 * MINUTE },
+  { label: "-30分钟", delta: -30 * MINUTE },
   { label: "+1小时", delta: HOUR },
-  { label: "+6小时", delta: 6 * HOUR },
-  { label: "+12小时", delta: 12 * HOUR },
-  { label: "+1天", delta: DAY },
-  { label: "+7天", delta: 7 * DAY },
   { label: "-1小时", delta: -HOUR },
-  { label: "-1天", delta: -DAY },
 ];
 
 function pad(n: number): string {
@@ -51,11 +48,19 @@ function fmt(epoch: number): string {
 function fmtOffset(delta: number): string {
   const sign = delta >= 0 ? "+" : "-";
   const abs = Math.abs(delta);
-  const days = Math.floor(abs / DAY);
-  const hours = (abs % DAY) / HOUR;
-  if (days > 0 && hours > 0) return `${sign}${days}天${hours}小时`;
-  if (days > 0) return `${sign}${days}天`;
-  return `${sign}${hours}小时`;
+  const days = Math.floor(abs / 86400);
+  const hours = Math.floor((abs % 86400) / 3600);
+  const minutes = Math.floor((abs % 3600) / 60);
+  if (days > 0) return `${sign}${days}天${hours}小时`;
+  if (hours > 0) return `${sign}${hours}小时${minutes ? minutes + "分钟" : ""}`;
+  return `${sign}${minutes}分钟`;
+}
+
+function numOptions(from: number, to: number): DropdownOption[] {
+  return Array.from({ length: to - from + 1 }, (_, i) => ({
+    data: from + i,
+    label: from + i > 99 ? String(from + i) : pad(from + i),
+  }));
 }
 
 function Content() {
@@ -64,8 +69,23 @@ function Content() {
   const [ntpSynced, setNtpSynced] = useState<boolean | undefined>();
   const [timezone, setTimezone] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
-  const [offsetHours, setOffsetHours] = useState(0);
-  const [customText, setCustomText] = useState("");
+
+  // custom datetime picker state, defaults to current time once loaded
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [day, setDay] = useState(new Date().getDate());
+  const [hour, setHour] = useState(new Date().getHours());
+  const [minute, setMinute] = useState(new Date().getMinutes());
+  const initialized = useRef(false);
+
+  const syncToNow = (nowEpoch: number) => {
+    const d = new Date(nowEpoch * 1000);
+    setYear(d.getFullYear());
+    setMonth(d.getMonth() + 1);
+    setDay(d.getDate());
+    setHour(d.getHours());
+    setMinute(d.getMinutes());
+  };
 
   const applyStatus = (res: TimeStatus) => {
     if (res.ok && res.epoch !== undefined) {
@@ -73,18 +93,20 @@ function Content() {
       setNtpEnabled(res.ntp_enabled);
       setNtpSynced(res.ntp_synced);
       setTimezone(res.timezone);
+      if (!initialized.current) {
+        initialized.current = true;
+        syncToNow(res.epoch);
+      }
     } else {
       toaster.toast({ title: "操作失败", body: res.error ?? "未知错误" });
     }
   };
 
-  const refresh = async () => {
-    const res = await getStatus();
-    applyStatus(res);
-  };
-
   useEffect(() => {
-    refresh();
+    (async () => {
+      const res = await getStatus();
+      applyStatus(res);
+    })();
     const timer = setInterval(() => {
       setEpoch((e) => (e === undefined ? e : e + 1));
     }, 1000);
@@ -98,7 +120,7 @@ function Content() {
       const res = await fn();
       applyStatus(res);
       if (res.ok) {
-        toastOk(successMsg(res));
+        toaster.toast({ title: "Time Changer", body: successMsg(res) });
       }
     } catch (e) {
       toaster.toast({ title: "操作失败", body: String(e) });
@@ -107,37 +129,27 @@ function Content() {
     }
   };
 
-  const toastOk = (msg: string) => toaster.toast({ title: "Time Changer", body: msg });
-
   const onQuickOffset = (delta: number) =>
     run(
       () => shiftTime(delta),
       (res) => `时间已调整 ${fmtOffset(delta)} → ${fmt(res.epoch ?? 0)}`,
     );
 
-  const onApplyOffset = () =>
-    run(
-      () => shiftTime(offsetHours * HOUR),
-      (res) => `时间已调整 ${fmtOffset(offsetHours * HOUR)} → ${fmt(res.epoch ?? 0)}`,
-    );
+  // clamp day when year/month changes across months of different length
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const effDay = Math.min(day, daysInMonth);
 
   const onSetCustom = () => {
-    // "YYYY-MM-DD HH:MM" parsed in the Deck's local timezone
-    const parsed = new Date(customText.trim().replace(" ", "T"));
-    if (Number.isNaN(parsed.getTime())) {
-      toaster.toast({ title: "时间格式错误", body: "请输入 YYYY-MM-DD HH:MM，例如 2026-10-11 09:30" });
-      return;
-    }
+    const target = new Date(year, month - 1, effDay, hour, minute);
+    const targetEpoch = Math.floor(target.getTime() / 1000);
     run(
-      () => setTime(Math.floor(parsed.getTime() / 1000)),
+      () => setTime(targetEpoch),
       (res) => `时间已设为 ${fmt(res.epoch ?? 0)}`,
     );
   };
 
   const onRestore = () =>
     run(restoreTime, () => "NTP 已开启，联网后将自动校准回真实时间");
-
-  const previewEpoch = epoch !== undefined ? epoch + offsetHours * HOUR : undefined;
 
   return (
     <div>
@@ -162,7 +174,7 @@ function Content() {
         <PanelSectionRow>
           <Focusable style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
             {QUICK_OFFSETS.map(({ label, delta }) => (
-              <DialogButton key={delta} style={{ minWidth: "100px", flex: "1 1 30%" }} disabled={busy} onClick={() => onQuickOffset(delta)}>
+              <DialogButton key={delta} style={{ minWidth: "120px", flex: "1 1 40%" }} disabled={busy} onClick={() => onQuickOffset(delta)}>
                 {label}
               </DialogButton>
             ))}
@@ -170,37 +182,28 @@ function Content() {
         </PanelSectionRow>
       </PanelSection>
 
-      <PanelSection title="按偏移量调整">
-        <PanelSectionRow>
-          <SliderField
-            label={`偏移 ${fmtOffset(offsetHours * HOUR)}`}
-            description={previewEpoch !== undefined && offsetHours !== 0 ? `目标时间：${fmt(previewEpoch)}` : undefined}
-            value={offsetHours}
-            min={-30 * 24}
-            max={30 * 24}
-            step={1}
-            onChange={setOffsetHours}
-          />
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ButtonItem layout="below" disabled={busy || offsetHours === 0} onClick={onApplyOffset}>
-            应用偏移
-          </ButtonItem>
-        </PanelSectionRow>
-      </PanelSection>
-
       <PanelSection title="自定义时间">
         <PanelSectionRow>
-          <TextField
-            label="目标时间"
-            description="格式 YYYY-MM-DD HH:MM（本机时区），如 2026-10-11 09:30"
-            value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
-          />
+          <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
+              <Dropdown rgOptions={numOptions(year - 5, year + 5)} selectedOption={year} onChange={(o) => setYear(o.data)} disabled={busy} menuLabel="年份" />
+              <Dropdown rgOptions={numOptions(1, 12)} selectedOption={month} onChange={(o) => setMonth(o.data)} disabled={busy} menuLabel="月份" />
+              <Dropdown rgOptions={numOptions(1, daysInMonth)} selectedOption={effDay} onChange={(o) => setDay(o.data)} disabled={busy} menuLabel="日期" />
+            </Focusable>
+            <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
+              <Dropdown rgOptions={numOptions(0, 23)} selectedOption={hour} onChange={(o) => setHour(o.data)} disabled={busy} menuLabel="小时" />
+              <Dropdown rgOptions={numOptions(0, 59)} selectedOption={minute} onChange={(o) => setMinute(o.data)} disabled={busy} menuLabel="分钟" />
+            </Focusable>
+          </Focusable>
         </PanelSectionRow>
         <PanelSectionRow>
-          <ButtonItem layout="below" disabled={busy || !customText.trim()} onClick={onSetCustom}>
+          <ButtonItem layout="below" disabled={busy} onClick={onSetCustom}>
             设置为此时间
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" disabled={busy} onClick={() => epoch !== undefined && syncToNow(epoch)}>
+            重置为当前时间
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
