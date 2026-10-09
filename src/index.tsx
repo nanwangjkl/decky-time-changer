@@ -7,7 +7,7 @@ import {
   PanelSectionRow,
   staticClasses,
 } from "@decky/ui";
-import { callable, definePlugin, toaster } from "@decky/api";
+import { callable, definePlugin, toaster, useQuickAccessVisible } from "@decky/api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FaClock } from "react-icons/fa";
 import type { DropdownOption } from "@decky/ui";
@@ -47,6 +47,7 @@ function numOptions(from: number, to: number): DropdownOption[] {
 }
 
 function Content() {
+  const visible = useQuickAccessVisible();
   const t = useMemo(() => makeT(detectLang()), []);
   // computed once: anchor for the year dropdown window (±5 years)
   const yearBase = useMemo(() => new Date().getFullYear(), []);
@@ -113,15 +114,26 @@ function Content() {
   };
 
   useEffect(() => {
+    if (!visible) return;
+    let active = true;
     (async () => {
-      const res = await getStatus();
-      applyStatus(res);
+      try {
+        const res = await getStatus();
+        if (active) applyStatus(res);
+      } catch (e) {
+        if (active) {
+          toaster.toast({ title: t("toast.failure"), body: String(e) });
+        }
+      }
     })();
     const timer = setInterval(() => {
       setEpoch((e) => (e === undefined ? e : e + 1));
     }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [visible]);
 
   const run = async (fn: () => Promise<TimeStatus>, successMsg: (res: TimeStatus) => string) => {
     if (busy) return;
@@ -149,9 +161,8 @@ function Content() {
   const daysInMonth = useMemo(() => new Date(year, month, 0).getDate(), [year, month]);
   const effDay = Math.min(day, daysInMonth);
 
-  // Steam's Dropdown resets its selection when the rgOptions array identity
-  // changes, so all option lists must be referentially stable; the fixed year
-  // window (current year ±5, computed once) also keeps yearOpts stable.
+  // Reuse option lists while the current-time display ticks. Only the day
+  // options need to change when the selected month's length changes.
   const yearOpts = useMemo(() => numOptions(yearBase - 5, yearBase + 5), [yearBase]);
   const monthOpts = useMemo(() => numOptions(1, 12), []);
   const dayOpts = useMemo(() => numOptions(1, daysInMonth), [daysInMonth]);
@@ -204,13 +215,13 @@ function Content() {
         <PanelSectionRow>
           <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
-              <Dropdown key={`y-${year}`} rgOptions={yearOpts} selectedOption={year} onChange={(o) => setYear(o.data)} disabled={busy} menuLabel={t("date.year")} />
-              <Dropdown key={`m-${month}`} rgOptions={monthOpts} selectedOption={month} onChange={(o) => setMonth(o.data)} disabled={busy} menuLabel={t("date.month")} />
-              <Dropdown key={`d-${effDay}-${daysInMonth}`} rgOptions={dayOpts} selectedOption={effDay} onChange={(o) => setDay(o.data)} disabled={busy} menuLabel={t("date.day")} />
+              <Dropdown rgOptions={yearOpts} selectedOption={year} onChange={(o) => setYear(o.data)} disabled={busy} menuLabel={t("date.year")} />
+              <Dropdown rgOptions={monthOpts} selectedOption={month} onChange={(o) => setMonth(o.data)} disabled={busy} menuLabel={t("date.month")} />
+              <Dropdown rgOptions={dayOpts} selectedOption={effDay} onChange={(o) => setDay(o.data)} disabled={busy} menuLabel={t("date.day")} />
             </Focusable>
             <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
-              <Dropdown key={`h-${hour}`} rgOptions={hourOpts} selectedOption={hour} onChange={(o) => setHour(o.data)} disabled={busy} menuLabel={t("date.hour")} />
-              <Dropdown key={`min-${minute}`} rgOptions={minuteOpts} selectedOption={minute} onChange={(o) => setMinute(o.data)} disabled={busy} menuLabel={t("date.minute")} />
+              <Dropdown rgOptions={hourOpts} selectedOption={hour} onChange={(o) => setHour(o.data)} disabled={busy} menuLabel={t("date.hour")} />
+              <Dropdown rgOptions={minuteOpts} selectedOption={minute} onChange={(o) => setMinute(o.data)} disabled={busy} menuLabel={t("date.minute")} />
             </Focusable>
           </Focusable>
         </PanelSectionRow>
@@ -240,6 +251,9 @@ export default definePlugin(() => {
     name: "Time Changer",
     titleView: <div className={staticClasses.Title}>Time Changer</div>,
     content: <Content />,
+    // Steam menus can temporarily hide the QAM. Keep picker state mounted so
+    // their selection callbacks do not target an already unmounted Content.
+    alwaysRender: true,
     icon: <FaClock />,
     onDismount() {},
   };

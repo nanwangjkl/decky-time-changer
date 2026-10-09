@@ -1,6 +1,6 @@
 {
   "name": "decky-time-changer",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Decky Loader plugin to change the Steam Deck's system time from Game Mode — quick time offsets, custom date & time picker, and one-click NTP restore.",
   "type": "module",
   "scripts": {
