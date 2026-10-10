@@ -29,6 +29,7 @@ const restoreTime = callable<[], TimeStatus>("restore_time");
 
 const MINUTE = 60;
 const HOUR = 3600;
+const DAY = 24 * HOUR;
 const STATUS_INTERVAL = 5000;
 
 function pad(n: number): string {
@@ -72,6 +73,8 @@ function Content() {
       { label: `-30${t("unit.min")}`, delta: -30 * MINUTE },
       { label: `+1${t("unit.hour")}`, delta: HOUR },
       { label: `-1${t("unit.hour")}`, delta: -HOUR },
+      { label: `+1${t("unit.day")}`, delta: DAY },
+      { label: `-1${t("unit.day")}`, delta: -DAY },
     ],
     [t],
   );
