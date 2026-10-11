@@ -67,14 +67,15 @@ function Content() {
     return sign + (parts.join(" ") || `0${t("unit.min")}`);
   };
 
+  // minus on the left, plus on the right — pairs wrap into two columns
   const quickOffsets = useMemo(
     () => [
-      { label: `+30${t("unit.min")}`, delta: 30 * MINUTE },
       { label: `-30${t("unit.min")}`, delta: -30 * MINUTE },
-      { label: `+1${t("unit.hour")}`, delta: HOUR },
+      { label: `+30${t("unit.min")}`, delta: 30 * MINUTE },
       { label: `-1${t("unit.hour")}`, delta: -HOUR },
-      { label: `+1${t("unit.day")}`, delta: DAY },
+      { label: `+1${t("unit.hour")}`, delta: HOUR },
       { label: `-1${t("unit.day")}`, delta: -DAY },
+      { label: `+1${t("unit.day")}`, delta: DAY },
     ],
     [t],
   );
@@ -216,22 +217,33 @@ function Content() {
 
   return (
     <div>
-      <PanelSection title={t("panel.current")}>
-        <PanelSectionRow>
-          <div className={staticClasses.Text} style={{ fontSize: "1.1em", textAlign: "center", paddingTop: "8px", paddingBottom: "4px" }}>
-            {epoch !== undefined ? fmt(epoch) : t("panel.current.loading")}
-          </div>
-          <div style={{ textAlign: "center", opacity: 0.7, fontSize: "0.85em" }}>
-            {ntpEnabled === undefined
-              ? ""
-              : !ntpEnabled
-                ? t("panel.current.manual", { timezone: timezone ?? "" })
-                : ntpSynced
+      {/* sticky clock header — pinned while the panel scrolls */}
+      <div
+        style={{
+          position: "sticky",
+          top: 45,
+          zIndex: 10,
+          background: "rgba(14, 20, 28, 0.92)",
+          backdropFilter: "blur(4px)",
+          borderBottom: "1px solid rgba(255, 255, 255, 0.12)",
+          paddingTop: "10px",
+          paddingBottom: "6px",
+          marginBottom: "14px",
+        }}
+      >
+        <div className={staticClasses.Text} style={{ fontSize: "1.1em", textAlign: "center" }}>
+          {epoch !== undefined ? fmt(epoch) : t("panel.current.loading")}
+        </div>
+        <div style={{ textAlign: "center", opacity: 0.7, fontSize: "0.85em" }}>
+          {ntpEnabled === undefined
+            ? ""
+            : !ntpEnabled
+              ? t("panel.current.manual", { timezone: timezone ?? "" })
+              : ntpSynced
                 ? t("panel.current.ntpSynced")
                 : t("panel.current.ntpEnabled")}
-          </div>
-        </PanelSectionRow>
-      </PanelSection>
+        </div>
+      </div>
 
       <PanelSection title={t("panel.offset")}>
         <PanelSectionRow>

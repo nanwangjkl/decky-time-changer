@@ -62,6 +62,8 @@ async function mount(t, backend = async () => initialStatus) {
     "ButtonItem", "DialogButton", "Dropdown", "Focusable", "PanelSection", "PanelSectionRow",
   ].map(name => [name, name]));
   ui.staticClasses = {};
+  ui.quickAccessControlsClasses = { PanelSection: "PanelSection" };
+  ui.gamepadUIClasses = { OpaqueBackground: "OpaqueBackground" };
   const factory = load("src/index.tsx", {
     ...common,
     "@decky/ui": ui,
@@ -93,7 +95,11 @@ async function mount(t, backend = async () => initialStatus) {
     calls, toasts, timers, dropdowns, button,
     quick: label => renderer.root.findAllByType("DialogButton").find(node => node.props.children === label),
     clock: () => renderer.root.findAllByType("div").find(node => node.props.style?.fontSize === "1.1em").props.children,
-    ntp: () => renderer.root.findAllByType("div").find(node => node.props.style?.opacity === 0.7).props.children,
+    ntp: () => {
+      // the status line lives inside the sticky clock block (not the restore hint, which shares its text style)
+      const clockBlock = renderer.root.findAllByType("div").find(node => node.props.style?.position === "sticky");
+      return clockBlock.props.children.find(child => child?.props?.style?.opacity === 0.7).props.children;
+    },
     visible: value => act(async () => renderer.update(tree(value))),
     choose: (index, data) => act(async () => {
       const field = dropdowns()[index];

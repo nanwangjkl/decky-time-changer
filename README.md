@@ -13,7 +13,7 @@ No desktop mode, no terminal: shift the clock right from the Quick Access Menu. 
 ## Features
 
 - Live system clock with NTP sync status
-- Quick offsets: ±30 min / ±1 hour
+- Quick offsets: ±30 min / ±1 hour / ±1 day
 - Custom date & time picker — defaults to the current time, handles month lengths and leap years
 - One-click restore to real time (re-enables NTP auto-sync)
 - UI in English and 简体中文, following your Steam client language
