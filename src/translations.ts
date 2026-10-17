@@ -27,8 +27,8 @@ export const STRINGS: Record<Lang, Record<string, string>> = {
     "date.minute": "Minute",
     "toast.failure": "Operation failed",
     "toast.unknownError": "Unknown error",
-    "toast.shifted": "Time shifted {offset} → {time}",
-    "toast.set": "Time set to {time}",
+    "toast.shifted": "Time shifted {offset} → {time} (NTP off until restored)",
+    "toast.set": "Time set to {time} (NTP off until restored)",
     "toast.restored": "NTP re-enabled. It will resync to real time once online.",
   },
   "zh-cn": {
@@ -53,8 +53,8 @@ export const STRINGS: Record<Lang, Record<string, string>> = {
     "date.minute": "分钟",
     "toast.failure": "操作失败",
     "toast.unknownError": "未知错误",
-    "toast.shifted": "时间已调整 {offset} → {time}",
-    "toast.set": "时间已设为 {time}",
+    "toast.shifted": "时间已调整 {offset} → {time}（NTP 已关闭，恢复前不自动同步）",
+    "toast.set": "时间已设为 {time}（NTP 已关闭，恢复前不自动同步）",
     "toast.restored": "NTP 已开启，联网后将自动校准回真实时间。",
   },
 };

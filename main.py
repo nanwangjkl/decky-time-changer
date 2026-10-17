@@ -13,12 +13,17 @@ def _clean_env() -> dict:
     # Decky's loader is a PyInstaller bundle; its unpack dir leaks into
     # LD_LIBRARY_PATH, so children resolve PyInstaller's old libcrypto instead
     # of the system one and system binaries like timedatectl fail to link.
-    # Strip loader-injected dynamic-linker variables before spawning.
-    return {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith("LD_") and not k.startswith("_MEI")
-    }
+    # PyInstaller preserves the pre-existing value in <VAR>_ORIG: restore it
+    # when present (keeps a legitimately configured system path), otherwise
+    # drop the loader-injected variable entirely.
+    env = dict(os.environ)
+    for var in ("LD_LIBRARY_PATH", "LD_PRELOAD"):
+        orig = env.pop(f"{var}_ORIG", None)
+        if orig is not None:
+            env[var] = orig
+        else:
+            env.pop(var, None)
+    return {k: v for k, v in env.items() if not k.startswith("_MEI")}
 
 
 class TimeCommandError(Exception):
@@ -87,6 +92,19 @@ def _set_time_epoch(epoch: int) -> None:
         raise
 
 
+def _restore_ntp() -> None:
+    """Best-effort NTP re-enable; a safeguard that must never raise.
+
+    Called from every plugin lifecycle hook so the system is never left in an
+    unsynchronized state after the plugin is disabled, reloaded, uninstalled,
+    or after a reboot (a stray "set-ntp false" survives reboots).
+    """
+    try:
+        _run("set-ntp", "true")
+    except Exception:
+        decky.logger.exception("NTP restore on lifecycle hook failed")
+
+
 def _error(e: Exception, refresh_status: bool = False) -> dict:
     decky.logger.exception("timedatectl call failed")
     result = {}
@@ -136,13 +154,19 @@ class Plugin:
         except Exception as e:
             return _error(e, refresh_status=True)
 
+    # The three lifecycle hooks below all restore NTP: _unload also fires when
+    # the plugin is disabled or the loader/Steam restarts, not every Decky
+    # version calls _uninstall, and _main catches stray "set-ntp false" states
+    # that survive reboots. Do not remove these without an equivalent safeguard.
+
     async def _main(self):
+        _restore_ntp()
         decky.logger.info(
             "Time Changer loaded (uid=%s, timedatectl=%s)", os.geteuid(), _TIMEDATECTL
         )
 
     async def _unload(self):
-        pass
+        _restore_ntp()
 
     async def _uninstall(self):
-        pass
+        _restore_ntp()

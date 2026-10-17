@@ -41,6 +41,9 @@ function fmt(epoch: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+// Steam toasts clip long bodies; keep the informative head visible.
+const short = (s: string) => (s.length > 80 ? s.slice(0, 77) + "…" : s);
+
 function numOptions(from: number, to: number): DropdownOption[] {
   return Array.from({ length: to - from + 1 }, (_, i) => ({
     data: from + i,
@@ -118,7 +121,7 @@ function Content() {
       }
     }
     if (!res.ok && reportError) {
-      toaster.toast({ title: t("toast.failure"), body: res.error ?? t("toast.unknownError") });
+      toaster.toast({ title: t("toast.failure"), body: short(res.error ?? t("toast.unknownError")) });
     }
   }, [syncToNow, t]);
 
@@ -163,7 +166,9 @@ function Content() {
     return () => clearInterval(timer);
   }, [visible]);
 
-  const run = async (fn: () => Promise<TimeStatus>, successMsg: (res: TimeStatus) => string) => {
+  const toastOk = (body: string) => toaster.toast({ title: "Time Changer", body });
+
+  const run = async (fn: () => Promise<TimeStatus>, onSuccess: (res: TimeStatus) => void) => {
     if (operationInFlight.current) return;
     operationInFlight.current = true;
     // Ignore reads started before this operation, even if responses arrive late.
@@ -172,11 +177,9 @@ function Content() {
     try {
       const res = await fn();
       applyStatus(res);
-      if (res.ok) {
-        toaster.toast({ title: "Time Changer", body: successMsg(res) });
-      }
+      if (res.ok) onSuccess(res);
     } catch (e) {
-      toaster.toast({ title: t("toast.failure"), body: String(e) });
+      toaster.toast({ title: t("toast.failure"), body: short(String(e)) });
     } finally {
       statusVersion.current++;
       operationInFlight.current = false;
@@ -184,11 +187,30 @@ function Content() {
     }
   };
 
+  // Rapid consecutive shifts merge into one toast with the accumulated offset.
+  const pendingShift = useRef<{ timer: ReturnType<typeof setTimeout>; delta: number } | null>(null);
+
+  const settleShiftToast = (res: TimeStatus) => {
+    const pending = pendingShift.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingShift.current = null;
+    toastOk(t("toast.shifted", { offset: fmtOffset(pending.delta), time: fmt(res.epoch ?? 0) }));
+  };
+
+  useEffect(() => () => {
+    if (pendingShift.current) clearTimeout(pendingShift.current.timer);
+  }, []);
+
   const onQuickOffset = (delta: number) =>
-    run(
-      () => shiftTime(delta),
-      (res) => t("toast.shifted", { offset: fmtOffset(delta), time: fmt(res.epoch ?? 0) }),
-    );
+    run(() => shiftTime(delta), (res) => {
+      if (pendingShift.current) clearTimeout(pendingShift.current.timer);
+      const accumulated = (pendingShift.current?.delta ?? 0) + delta;
+      pendingShift.current = {
+        delta: accumulated,
+        timer: setTimeout(() => settleShiftToast(res), 1500),
+      };
+    });
 
   // clamp day when year/month changes across months of different length
   const daysInMonth = useMemo(() => new Date(year, month, 0).getDate(), [year, month]);
@@ -209,11 +231,18 @@ function Content() {
     const targetEpoch = Math.floor(target.getTime() / 1000);
     run(
       () => setTime(targetEpoch),
-      (res) => t("toast.set", { time: fmt(res.epoch ?? 0) }),
+      (res) => {
+        settleShiftToast(res); // flush any pending shift toast first
+        toastOk(t("toast.set", { time: fmt(res.epoch ?? 0) }));
+      },
     );
   };
 
-  const onRestore = () => run(restoreTime, () => t("toast.restored"));
+  const onRestore = () =>
+    run(restoreTime, (res) => {
+      settleShiftToast(res);
+      toastOk(t("toast.restored"));
+    });
 
   return (
     <div>
@@ -223,7 +252,7 @@ function Content() {
           position: "sticky",
           top: 45,
           zIndex: 10,
-          background: "rgba(14, 20, 28, 0.92)",
+          background: "rgba(14, 20, 28, 0.85)",
           backdropFilter: "blur(4px)",
           borderBottom: "1px solid rgba(255, 255, 255, 0.12)",
           paddingTop: "10px",
@@ -272,7 +301,7 @@ function Content() {
           </Focusable>
         </PanelSectionRow>
         <PanelSectionRow>
-          <ButtonItem layout="below" disabled={pickerDisabled} onClick={onSetCustom}>
+          <ButtonItem layout="below" highlightOnFocus={false} disabled={pickerDisabled} onClick={onSetCustom}>
             {t("action.set")}
           </ButtonItem>
         </PanelSectionRow>
@@ -280,7 +309,7 @@ function Content() {
 
       <PanelSection title={t("panel.restore")}>
         <PanelSectionRow>
-          <ButtonItem layout="below" disabled={busy} onClick={onRestore}>
+          <ButtonItem layout="below" highlightOnFocus={false} disabled={busy} onClick={onRestore}>
             {t("action.restore")}
           </ButtonItem>
           <div style={{ textAlign: "center", opacity: 0.7, fontSize: "0.85em", paddingTop: "4px" }}>

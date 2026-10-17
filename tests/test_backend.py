@@ -127,6 +127,43 @@ class BackendTests(unittest.TestCase):
         self.assertTrue(result["ntp_enabled"])
         self.assertFalse(result["ntp_synced"])
 
+    def test_lifecycle_hooks_restore_ntp(self):
+        for hook in ("_main", "_unload", "_uninstall"):
+            with self.subTest(hook=hook):
+                clock = FakeClock(ntp=False)
+                result, calls = self.invoke(clock, hook)
+                self.assertIsNone(result)
+                self.assertIn(("set-ntp", "true"), [call.args for call in calls])
+                self.assertTrue(clock.ntp)
+
+    def test_lifecycle_restore_failure_is_swallowed(self):
+        # a failing cleanup must never break disable/uninstall flows
+        for hook in ("_main", "_unload", "_uninstall"):
+            with self.subTest(hook=hook):
+                result, _ = self.invoke(FakeClock(ntp=False, fail_restore=True), hook)
+                self.assertIsNone(result)
+
+    def test_clean_env_restores_preexisting_library_path(self):
+        env = {
+            "LD_LIBRARY_PATH": "/tmp/_MEIloader/lib",
+            "LD_LIBRARY_PATH_ORIG": "/opt/custom/libs",
+            "PATH": "/usr/bin",
+            "_MEIPASS2": "/tmp/_MEIloader",
+        }
+        with patch.dict(backend.os.environ, env):
+            cleaned = backend._clean_env()
+        self.assertEqual(cleaned.get("LD_LIBRARY_PATH"), "/opt/custom/libs")
+        self.assertNotIn("LD_LIBRARY_PATH_ORIG", cleaned)
+        self.assertNotIn("_MEIPASS2", cleaned)
+        self.assertEqual(cleaned.get("PATH"), "/usr/bin")
+
+    def test_clean_env_drops_loader_path_when_no_original(self):
+        env = {"LD_LIBRARY_PATH": "/tmp/_MEIloader/lib", "PATH": "/usr/bin"}
+        with patch.dict(backend.os.environ, env):
+            cleaned = backend._clean_env()
+        self.assertNotIn("LD_LIBRARY_PATH", cleaned)
+        self.assertEqual(cleaned.get("PATH"), "/usr/bin")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -78,6 +78,8 @@ async function mount(t, backend = async () => initialStatus) {
   }, {
     setInterval(fn, delay) { const id = ++timerId; timers.set(id, { fn, delay }); return id; },
     clearInterval(id) { timers.delete(id); },
+    setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, delay }); return id; },
+    clearTimeout(id) { timers.delete(id); },
   }).default;
   const plugin = factory();
   // Match Decky's visibility condition: hidden content normally unmounts.
@@ -230,7 +232,38 @@ test("two clicks before a rerender cannot start overlapping operations", async t
   assert.equal(app.calls.filter(call => call.name === "shift_time").length, 1);
   assert.ok(app.dropdowns().every(field => field.props.disabled));
   await act(async () => operation.resolve(initialStatus));
+  await app.tick(1500); // success toast waits for the merge window
   assert.equal(app.toasts.length, 1);
+});
+
+test("rapid shifts merge into one accumulated toast", async t => {
+  const app = await mount(t, async name => {
+    if (name === "shift_time") return { ...initialStatus, epoch: initialStatus.epoch + 3600, ntp_enabled: false };
+    return initialStatus;
+  });
+  await act(async () => { void app.quick("+1h").props.onClick(); });
+  await act(async () => { void app.quick("+1h").props.onClick(); });
+  assert.equal(app.toasts.length, 0, "no toast before the merge window closes");
+  await app.tick(1500);
+  const bodies = app.toasts.map(x => x.body);
+  assert.equal(bodies.length, 1);
+  assert.match(bodies[0], /\+2h|\+2 ?h/);
+  assert.match(bodies[0], /NTP off until restored/);
+});
+
+test("a custom set flushes the pending shift toast first", async t => {
+  const app = await mount(t, async name => {
+    if (name === "shift_time") return { ...initialStatus, epoch: initialStatus.epoch + 3600, ntp_enabled: false };
+    if (name === "set_time") return { ...initialStatus, epoch: initialStatus.epoch + 86400, ntp_enabled: false };
+    return initialStatus;
+  });
+  await act(async () => { void app.quick("+1h").props.onClick(); });
+  await act(async () => { void app.button("Set to This Time").props.onClick(); });
+  const bodies = app.toasts.map(x => x.body);
+  assert.equal(bodies.length, 2, "shift settle + set toast");
+  assert.match(bodies[0], /\+1h/);
+  await app.tick(1500);
+  assert.equal(app.toasts.length, 2, "no duplicate after the window");
 });
 
 test("calendar changes, clock ticks, and submission keep the selected date", async t => {

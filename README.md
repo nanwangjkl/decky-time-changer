@@ -45,10 +45,12 @@ pnpm install && pnpm run build   # produces dist/
 
 ## Warnings
 
+- **Purpose & disclaimer**: Time Changer is a tool for changing the system clock from Game Mode — intended for date-triggered game content (daily events, date-dependent achievements), emulator titles with real-clock mechanics, and testing time-dependent behavior. It is not meant for long-term use; restore real time when you're done. Use this tool at your own risk — the authors are not responsible for any issues arising from manipulating the system clock.
 - **While the clock is skewed, HTTPS validation fails** — Steam store and online features may break. This is expected; click *Restore Real Time* to fix.
 - Restore requires network connectivity (NTP needs to reach a time server).
 - The Steam client may keep displaying the old time until restarted; the system clock itself is changed immediately.
 - Setting time automatically disables NTP so the system doesn't snap back — the plugin shows a "manual time" state so you don't forget.
+- **The system is never left unsynchronized**: re-enabling Steam, disabling or uninstalling the plugin, or updating Decky Loader all restore NTP automatically (a failed restore is retried on the next plugin load).
 
 ## Development
 
