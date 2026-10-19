@@ -95,9 +95,9 @@ def _set_time_epoch(epoch: int) -> None:
 def _restore_ntp() -> None:
     """Best-effort NTP re-enable; a safeguard that must never raise.
 
-    Called from every plugin lifecycle hook so the system is never left in an
-    unsynchronized state after the plugin is disabled, reloaded, uninstalled,
-    or after a reboot (a stray "set-ntp false" survives reboots).
+    Called from every plugin lifecycle hook to attempt recovery after disable,
+    reload, uninstall, or a Deck reboot ("set-ntp false" survives reboots).
+    Enabling NTP does not guarantee immediate synchronization.
     """
     try:
         _run("set-ntp", "true")
@@ -155,9 +155,10 @@ class Plugin:
             return _error(e, refresh_status=True)
 
     # The three lifecycle hooks below all restore NTP: _unload also fires when
-    # the plugin is disabled or the loader/Steam restarts, not every Decky
+    # the plugin is disabled or the loader restarts, not every Decky
     # version calls _uninstall, and _main catches stray "set-ntp false" states
-    # that survive reboots. Do not remove these without an equivalent safeguard.
+    # that survive Deck reboots. Restarting only Steam does not reload the backend.
+    # Do not remove these without an equivalent safeguard.
 
     async def _main(self):
         _restore_ntp()

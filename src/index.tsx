@@ -78,6 +78,7 @@ function Content() {
   const [ntpSynced, setNtpSynced] = useState<boolean | undefined>();
   const [timezone, setTimezone] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const mounted = useRef(false);
   const operationInFlight = useRef(false);
   const statusVersion = useRef(0);
 
@@ -171,37 +172,45 @@ function Content() {
   const toastOk = (body: string) => toaster.toast({ title: "Time Changer", body });
 
   const run = async (fn: () => Promise<TimeStatus>, onSuccess: (res: TimeStatus) => void) => {
-    if (operationInFlight.current) return;
+    if (!mounted.current || operationInFlight.current) return;
     operationInFlight.current = true;
     // Ignore reads started before this operation, even if responses arrive late.
     statusVersion.current++;
     setBusy(true);
     try {
       const res = await fn();
+      if (!mounted.current) return;
       applyStatus(res);
       if (res.ok) onSuccess(res);
     } catch (e) {
-      toaster.toast({ title: t("toast.failure"), body: short(String(e)) });
+      if (mounted.current) {
+        toaster.toast({ title: t("toast.failure"), body: short(String(e)) });
+      }
     } finally {
       statusVersion.current++;
       operationInFlight.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
   // Rapid consecutive shifts merge into one toast with the accumulated offset.
-  const pendingShift = useRef<{ timer: ReturnType<typeof setTimeout>; delta: number } | null>(null);
+  const pendingShift = useRef<{ timer: ReturnType<typeof setTimeout>; delta: number; epoch: number } | null>(null);
 
-  const settleShiftToast = (res: TimeStatus) => {
+  const settleShiftToast = () => {
     const pending = pendingShift.current;
-    if (!pending) return;
+    if (!mounted.current || !pending) return;
     clearTimeout(pending.timer);
     pendingShift.current = null;
-    toastOk(t("toast.shifted", { offset: fmtOffset(pending.delta), time: fmt(res.epoch ?? 0) }));
+    toastOk(t("toast.shifted", { offset: fmtOffset(pending.delta), time: fmt(pending.epoch) }));
   };
 
-  useEffect(() => () => {
-    if (pendingShift.current) clearTimeout(pendingShift.current.timer);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (pendingShift.current) clearTimeout(pendingShift.current.timer);
+      pendingShift.current = null;
+    };
   }, []);
 
   const onQuickOffset = (delta: number) =>
@@ -210,7 +219,8 @@ function Content() {
       const accumulated = (pendingShift.current?.delta ?? 0) + delta;
       pendingShift.current = {
         delta: accumulated,
-        timer: setTimeout(() => settleShiftToast(res), 1500),
+        epoch: res.epoch ?? 0,
+        timer: setTimeout(settleShiftToast, 1500),
       };
     });
 
@@ -227,19 +237,23 @@ function Content() {
     const target = new Date(year, month - 1, effDay, hour, minute);
     const targetEpoch = Math.floor(target.getTime() / 1000);
     run(
-      () => setTime(targetEpoch),
-      (res) => {
-        settleShiftToast(res); // flush any pending shift toast first
-        toastOk(t("toast.set", { time: fmt(res.epoch ?? 0) }));
+      () => {
+        // Settle the previous operation before changing the clock or NTP state.
+        settleShiftToast();
+        return setTime(targetEpoch);
       },
+      (res) => toastOk(t("toast.set", { time: fmt(res.epoch ?? 0) })),
     );
   };
 
   const onRestore = () =>
-    run(restoreTime, (res) => {
-      settleShiftToast(res);
-      toastOk(t("toast.restored"));
-    });
+    run(
+      () => {
+        settleShiftToast();
+        return restoreTime();
+      },
+      () => toastOk(t("toast.restored")),
+    );
 
   return (
     <div>

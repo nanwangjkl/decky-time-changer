@@ -50,7 +50,7 @@ pnpm install && pnpm run build   # produces dist/
 - Restore requires network connectivity (NTP needs to reach a time server).
 - The Steam client may keep displaying the old time until restarted; the system clock itself is changed immediately.
 - Setting time automatically disables NTP so the system doesn't snap back — the plugin shows a "manual time" state so you don't forget.
-- **The system is never left unsynchronized**: re-enabling Steam, disabling or uninstalling the plugin, or updating Decky Loader all restore NTP automatically (a failed restore is retried on the next plugin load).
+- **NTP recovery**: the plugin attempts to re-enable NTP when its backend loads after a Steam Deck reboot, when the plugin is disabled or uninstalled, and when Decky Loader restarts or updates. A failed attempt is retried on the next plugin load. Restarting only the Steam client does not trigger recovery; clock synchronization still requires a network connection.
 
 ## Development
 

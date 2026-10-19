@@ -48,8 +48,9 @@ function load(filename, modules, globals = {}) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise(done => { resolve = done; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 async function mount(t, backend = async () => initialStatus) {
@@ -103,6 +104,7 @@ async function mount(t, backend = async () => initialStatus) {
       return clockBlock.props.children.find(child => child?.props?.style?.opacity === 0.7).props.children;
     },
     visible: value => act(async () => renderer.update(tree(value))),
+    unmount: () => act(async () => renderer.unmount()),
     slide: (index, value) => act(async () => {
       const field = sliders()[index];
       assert.equal(field.props.disabled, false);
@@ -237,9 +239,10 @@ test("two clicks before a rerender cannot start overlapping operations", async t
 });
 
 test("rapid shifts merge into one accumulated toast", async t => {
+  let current = initialStatus;
   const app = await mount(t, async name => {
-    if (name === "shift_time") return { ...initialStatus, epoch: initialStatus.epoch + 3600, ntp_enabled: false };
-    return initialStatus;
+    if (name === "shift_time") current = { ...current, epoch: current.epoch + 3600, ntp_enabled: false };
+    return current;
   });
   await act(async () => { void app.quick("+1h").props.onClick(); });
   await act(async () => { void app.quick("+1h").props.onClick(); });
@@ -248,22 +251,100 @@ test("rapid shifts merge into one accumulated toast", async t => {
   const bodies = app.toasts.map(x => x.body);
   assert.equal(bodies.length, 1);
   assert.match(bodies[0], /\+2h|\+2 ?h/);
+  assert.match(bodies[0], /2026-01-31 11:15:00/);
   assert.match(bodies[0], /NTP off until restored/);
 });
 
 test("a custom set flushes the pending shift toast first", async t => {
-  const app = await mount(t, async name => {
-    if (name === "shift_time") return { ...initialStatus, epoch: initialStatus.epoch + 3600, ntp_enabled: false };
-    if (name === "set_time") return { ...initialStatus, epoch: initialStatus.epoch + 86400, ntp_enabled: false };
-    return initialStatus;
+  let current = initialStatus;
+  const app = await mount(t, async (name, args) => {
+    if (name === "shift_time") current = { ...initialStatus, epoch: initialStatus.epoch + 3600 };
+    if (name === "set_time") {
+      assert.equal(app.toasts.length, 1, "settle the old toast before changing the clock");
+      current = { ...initialStatus, epoch: args[0] };
+    }
+    return current;
   });
+  await app.slide(1, 2);
+  await app.slide(2, 1);
   await act(async () => { void app.quick("+1h").props.onClick(); });
   await act(async () => { void app.button("Set to This Time").props.onClick(); });
   const bodies = app.toasts.map(x => x.body);
   assert.equal(bodies.length, 2, "shift settle + set toast");
   assert.match(bodies[0], /\+1h/);
+  assert.match(bodies[0], /2026-01-31 10:15:00/);
+  assert.match(bodies[1], /2026-02-01 09:15:00/);
   await app.tick(1500);
   assert.equal(app.toasts.length, 2, "no duplicate after the window");
+});
+
+test("restoring NTP settles the shift snapshot before enabling synchronization", async t => {
+  let current = initialStatus;
+  const app = await mount(t, async name => {
+    if (name === "shift_time") current = { ...initialStatus, epoch: initialStatus.epoch + 3600 };
+    if (name === "restore_time") {
+      assert.equal(app.toasts.length, 1, "settle the NTP-off toast before restoring NTP");
+      current = { ...initialStatus, epoch: initialStatus.epoch + 86400, ntp_enabled: true };
+    }
+    return current;
+  });
+  await act(async () => app.quick("+1h").props.onClick());
+  await act(async () => app.button("Restore Real Time (NTP)").props.onClick());
+  assert.equal(app.toasts.length, 2);
+  assert.match(app.toasts[0].body, /\+1h → 2026-01-31 10:15:00/);
+  assert.equal(app.toasts[1].body, "NTP re-enabled. It will resync to real time once online.");
+  assert.equal(app.ntp(), "NTP enabled (not synced)");
+  await app.tick(1500);
+  assert.equal(app.toasts.length, 2);
+});
+
+for (const action of ["shift_time", "set_time", "restore_time"]) {
+  test(`a late ${action} success after unmount creates no timers or toasts`, async t => {
+    const operation = deferred();
+    const app = await mount(t, async name => name === action ? operation.promise : initialStatus);
+    const click = action === "shift_time" ? app.quick("+1h").props.onClick
+      : app.button(action === "set_time" ? "Set to This Time" : "Restore Real Time (NTP)").props.onClick;
+    let pending;
+    await act(async () => { pending = click(); });
+    await app.unmount();
+    assert.equal(app.timers.size, 0);
+    await act(async () => {
+      operation.resolve({ ...initialStatus, epoch: initialStatus.epoch + 3600 });
+      await pending;
+    });
+    assert.equal(app.timers.size, 0);
+    assert.equal(app.toasts.length, 0);
+  });
+}
+
+for (const rejected of [false, true]) {
+  test(`a late ${rejected ? "rejected request" : "failure response"} after unmount shows no error toast`, async t => {
+    const operation = deferred();
+    const app = await mount(t, async name => name === "shift_time" ? operation.promise : initialStatus);
+    let pending;
+    await act(async () => { pending = app.quick("+1h").props.onClick(); });
+    await app.unmount();
+    await act(async () => {
+      if (rejected) operation.reject(new Error("request failed"));
+      else operation.resolve({ ...initialStatus, ok: false, error: "time change failed" });
+      await pending;
+    });
+    assert.equal(app.toasts.length, 0);
+    assert.equal(app.timers.size, 0);
+  });
+}
+
+test("unmount cancels a pending merged shift toast", async t => {
+  const app = await mount(t);
+  await act(async () => app.quick("+1h").props.onClick());
+  assert.equal(app.toasts.length, 0);
+  const timeout = [...app.timers.values()].find(timer => timer.delay === 1500);
+  assert.ok(timeout);
+  await app.unmount();
+  assert.equal(app.timers.size, 0);
+  // A callback already queued by the host must also be harmless after cleanup.
+  await act(async () => timeout.fn());
+  assert.equal(app.toasts.length, 0);
 });
 
 test("calendar changes, clock ticks, and submission keep the selected date", async t => {
