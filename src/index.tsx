@@ -1,16 +1,15 @@
 import {
   ButtonItem,
   DialogButton,
-  Dropdown,
   Focusable,
   PanelSection,
   PanelSectionRow,
+  SliderField,
   staticClasses,
 } from "@decky/ui";
 import { callable, definePlugin, toaster, useQuickAccessVisible } from "@decky/api";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FaClock } from "react-icons/fa";
-import type { DropdownOption } from "@decky/ui";
 import { detectLang, makeT } from "./translations";
 
 interface TimeStatus {
@@ -44,18 +43,9 @@ function fmt(epoch: number): string {
 // Steam toasts clip long bodies; keep the informative head visible.
 const short = (s: string) => (s.length > 80 ? s.slice(0, 77) + "…" : s);
 
-function numOptions(from: number, to: number): DropdownOption[] {
-  return Array.from({ length: to - from + 1 }, (_, i) => ({
-    data: from + i,
-    label: from + i > 99 ? String(from + i) : pad(from + i),
-  }));
-}
-
 function Content() {
   const visible = useQuickAccessVisible();
   const t = useMemo(() => makeT(detectLang()), []);
-  // computed once: anchor for the year dropdown window (±5 years)
-  const yearBase = useMemo(() => new Date().getFullYear(), []);
 
   const fmtOffset = (delta: number): string => {
     const sign = delta >= 0 ? "+" : "-";
@@ -99,9 +89,21 @@ function Content() {
   const [minute, setMinute] = useState(new Date().getMinutes());
   const initialized = useRef(false);
 
+  // keep the day valid when year/month changes (31 Jan -> February etc.)
+  const changeYear = useCallback((v: number) => {
+    setYear(v);
+    setDay((d) => Math.min(d, new Date(v, month, 0).getDate()));
+  }, [month]);
+  const changeMonth = useCallback((v: number) => {
+    setMonth(v);
+    setDay((d) => Math.min(d, new Date(year, v, 0).getDate()));
+  }, [year]);
+
   const syncToNow = useCallback((nowEpoch: number) => {
     const d = new Date(nowEpoch * 1000);
-    setYear(d.getFullYear());
+    // the system clock may be skewed outside the year window; clamp so the
+    // dropdown can always represent the selected value
+    setYear(Math.min(Math.max(d.getFullYear(), 2003), 2034));
     setMonth(d.getMonth() + 1);
     setDay(d.getDate());
     setHour(d.getHours());
@@ -218,11 +220,6 @@ function Content() {
 
   // Reuse option lists while the current-time display ticks. Only the day
   // options need to change when the selected month's length changes.
-  const yearOpts = useMemo(() => numOptions(yearBase - 5, yearBase + 5), [yearBase]);
-  const monthOpts = useMemo(() => numOptions(1, 12), []);
-  const dayOpts = useMemo(() => numOptions(1, daysInMonth), [daysInMonth]);
-  const hourOpts = useMemo(() => numOptions(0, 23), []);
-  const minuteOpts = useMemo(() => numOptions(0, 59), []);
   const pickerDisabled = busy || epoch === undefined;
 
   const onSetCustom = () => {
@@ -288,17 +285,19 @@ function Content() {
 
       <PanelSection title={t("panel.custom")}>
         <PanelSectionRow>
-          <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
-              <Dropdown rgOptions={yearOpts} selectedOption={year} onChange={(o) => setYear(o.data)} disabled={pickerDisabled} menuLabel={t("date.year")} />
-              <Dropdown rgOptions={monthOpts} selectedOption={month} onChange={(o) => setMonth(o.data)} disabled={pickerDisabled} menuLabel={t("date.month")} />
-              <Dropdown rgOptions={dayOpts} selectedOption={effDay} onChange={(o) => setDay(o.data)} disabled={pickerDisabled} menuLabel={t("date.day")} />
-            </Focusable>
-            <Focusable style={{ display: "flex", flexDirection: "row", gap: "8px", justifyContent: "center" }}>
-              <Dropdown rgOptions={hourOpts} selectedOption={hour} onChange={(o) => setHour(o.data)} disabled={pickerDisabled} menuLabel={t("date.hour")} />
-              <Dropdown rgOptions={minuteOpts} selectedOption={minute} onChange={(o) => setMinute(o.data)} disabled={pickerDisabled} menuLabel={t("date.minute")} />
-            </Focusable>
-          </Focusable>
+          <SliderField label={t("date.year")} value={year} min={2003} max={2034} step={1} showValue disabled={pickerDisabled} onChange={changeYear} />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <SliderField label={t("date.month")} value={month} min={1} max={12} step={1} showValue disabled={pickerDisabled} onChange={changeMonth} />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <SliderField label={t("date.day")} value={effDay} min={1} max={daysInMonth} step={1} showValue disabled={pickerDisabled} onChange={setDay} />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <SliderField label={t("date.hour")} value={hour} min={0} max={23} step={1} showValue disabled={pickerDisabled} onChange={setHour} />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <SliderField label={t("date.minute")} value={minute} min={0} max={59} step={1} showValue disabled={pickerDisabled} onChange={setMinute} />
         </PanelSectionRow>
         <PanelSectionRow>
           <ButtonItem layout="below" highlightOnFocus={false} disabled={pickerDisabled} onClick={onSetCustom}>

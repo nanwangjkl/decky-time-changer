@@ -59,7 +59,7 @@ async function mount(t, backend = async () => initialStatus) {
   let timerId = 0;
   const common = { react: React, "react/jsx-runtime": jsx };
   const ui = Object.fromEntries([
-    "ButtonItem", "DialogButton", "Dropdown", "Focusable", "PanelSection", "PanelSectionRow",
+    "ButtonItem", "DialogButton", "Focusable", "PanelSection", "PanelSectionRow", "SliderField",
   ].map(name => [name, name]));
   ui.staticClasses = {};
   ui.quickAccessControlsClasses = { PanelSection: "PanelSection" };
@@ -91,10 +91,10 @@ async function mount(t, backend = async () => initialStatus) {
     await act(async () => renderer.unmount());
     assert.equal(timers.size, 0, "Unmount must release every timer");
   });
-  const dropdowns = () => renderer.root.findAllByType("Dropdown");
+  const sliders = () => renderer.root.findAllByType("SliderField");
   const button = label => renderer.root.findAllByType("ButtonItem").find(node => node.props.children === label);
   return {
-    calls, toasts, timers, dropdowns, button,
+    calls, toasts, timers, sliders, button,
     quick: label => renderer.root.findAllByType("DialogButton").find(node => node.props.children === label),
     clock: () => renderer.root.findAllByType("div").find(node => node.props.style?.fontSize === "1.1em").props.children,
     ntp: () => {
@@ -103,10 +103,10 @@ async function mount(t, backend = async () => initialStatus) {
       return clockBlock.props.children.find(child => child?.props?.style?.opacity === 0.7).props.children;
     },
     visible: value => act(async () => renderer.update(tree(value))),
-    choose: (index, data) => act(async () => {
-      const field = dropdowns()[index];
+    slide: (index, value) => act(async () => {
+      const field = sliders()[index];
       assert.equal(field.props.disabled, false);
-      field.props.onChange({ data, label: String(data).padStart(2, "0") });
+      field.props.onChange(value);
     }),
     tick: delay => act(async () => {
       for (const timer of [...timers.values()]) if (timer.delay === delay) timer.fn();
@@ -122,25 +122,25 @@ test("initial load disables the picker; later status reads preserve edited value
     if (first) { first = false; return pending.promise; }
     return current;
   });
-  assert.ok(app.dropdowns().every(field => field.props.disabled));
+  assert.ok(app.sliders().every(field => field.props.disabled));
   assert.equal(app.button("Set to This Time").props.disabled, true);
   await act(async () => app.button("Set to This Time").props.onClick());
   assert.equal(app.calls.filter(call => call.name === "set_time").length, 0);
   await act(async () => pending.resolve(initialStatus));
-  await app.choose(4, 59);
+  await app.slide(4, 59);
   current = { ...initialStatus, epoch: initialStatus.epoch + 3600 };
   await app.tick(5000);
-  assert.equal(app.dropdowns()[4].props.selectedOption, 59);
+  assert.equal(app.sliders()[4].props.value, 59);
 });
 
 test("QAM hide/show preserves selection and stops background polling", async t => {
   const app = await mount(t);
-  const callback = app.dropdowns()[1].props.onChange;
+  const callback = app.sliders()[1].props.onChange;
   await app.visible(false);
   assert.equal(app.timers.size, 0);
-  await act(async () => callback({ data: 2, label: "02" }));
+  await act(async () => callback(2));
   await app.visible(true);
-  assert.equal(app.dropdowns()[1].props.selectedOption, 2);
+  assert.equal(app.sliders()[1].props.value, 2);
   assert.equal(app.timers.size, 2);
 });
 
@@ -200,11 +200,11 @@ test("polling recovers after rejected requests without repeated error notificati
     if (++reads < 3) throw new Error("connection unavailable");
     return initialStatus;
   });
-  assert.ok(app.dropdowns().every(field => field.props.disabled));
+  assert.ok(app.sliders().every(field => field.props.disabled));
   await app.tick(5000);
   assert.equal(app.toasts.length, 1);
   await app.tick(5000);
-  assert.ok(app.dropdowns().every(field => !field.props.disabled));
+  assert.ok(app.sliders().every(field => !field.props.disabled));
   assert.equal(app.toasts.length, 1);
 });
 
@@ -230,7 +230,7 @@ test("two clicks before a rerender cannot start overlapping operations", async t
   const click = app.quick("+1h").props.onClick;
   await act(async () => { void click(); void click(); });
   assert.equal(app.calls.filter(call => call.name === "shift_time").length, 1);
-  assert.ok(app.dropdowns().every(field => field.props.disabled));
+  assert.ok(app.sliders().every(field => field.props.disabled));
   await act(async () => operation.resolve(initialStatus));
   await app.tick(1500); // success toast waits for the merge window
   assert.equal(app.toasts.length, 1);
@@ -272,18 +272,18 @@ test("calendar changes, clock ticks, and submission keep the selected date", asy
     if (name === "set_time") sent = args[0];
     return { ...initialStatus, epoch: sent ?? initialStatus.epoch };
   });
-  await app.choose(0, 2028);
-  await app.choose(1, 2);
-  assert.equal(app.dropdowns()[2].props.selectedOption, 29);
-  await app.choose(0, 2027);
-  assert.equal(app.dropdowns()[2].props.selectedOption, 28);
-  await app.choose(2, 21);
-  await app.choose(3, 23);
-  await app.choose(4, 59);
-  const options = app.dropdowns().map(field => field.props.rgOptions);
+  await app.slide(0, 2028);
+  await app.slide(1, 2);
+  assert.equal(app.sliders()[2].props.value, 29);
+  await app.slide(0, 2027);
+  assert.equal(app.sliders()[2].props.value, 28);
+  await app.slide(2, 21);
+  await app.slide(3, 23);
+  await app.slide(4, 59);
+  const ranges = app.sliders().map(field => [field.props.min, field.props.max]);
   await app.tick(1000);
-  app.dropdowns().forEach((field, index) => assert.equal(field.props.rgOptions, options[index]));
+  app.sliders().forEach((field, index) => assert.deepStrictEqual([field.props.min, field.props.max], ranges[index]));
   await act(async () => app.button("Set to This Time").props.onClick());
   assert.equal(sent, Math.floor(new Date(2027, 1, 21, 23, 59).getTime() / 1000));
-  assert.equal(app.dropdowns()[4].props.selectedOption, 59);
+  assert.equal(app.sliders()[4].props.value, 59);
 });
