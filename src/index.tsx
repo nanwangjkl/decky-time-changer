@@ -252,7 +252,13 @@ function Content() {
         settleShiftToast();
         return restoreTime();
       },
-      () => toastOk(t("toast.restored")),
+      (res) => {
+        // End the custom-time session: the picker draft resets to the system
+        // time at the moment of restore. Deliberately not tied to the later
+        // NTP resync — sliders must never mutate under the user asynchronously.
+        syncToNow(res.epoch ?? 0);
+        toastOk(t("toast.restored"));
+      },
     );
 
   return (
@@ -261,7 +267,7 @@ function Content() {
       <div
         style={{
           position: "sticky",
-          top: 45,
+          top: 40,
           zIndex: 10,
           background: "rgba(14, 20, 28, 0.85)",
           backdropFilter: "blur(4px)",
@@ -269,6 +275,9 @@ function Content() {
           paddingTop: "10px",
           paddingBottom: "6px",
           marginBottom: "14px",
+          // Manual mode remains a warning even if the kernel retains its sync
+          // flag; also warn while NTP is enabled but has not synchronized yet.
+          color: ntpEnabled === false || ntpSynced === false ? "#f2b232" : undefined,
         }}
       >
         <div className={staticClasses.Text} style={{ fontSize: "1.1em", textAlign: "center" }}>
@@ -284,6 +293,17 @@ function Content() {
                 : t("panel.current.ntpEnabled")}
         </div>
       </div>
+
+      <PanelSection title={t("panel.restore")}>
+        <PanelSectionRow>
+          <ButtonItem layout="below" highlightOnFocus={false} disabled={busy} onClick={onRestore}>
+            {t("action.restore")}
+          </ButtonItem>
+          <div style={{ textAlign: "center", opacity: 0.7, fontSize: "0.85em", paddingTop: "4px" }}>
+            {t("hint.restore")}
+          </div>
+        </PanelSectionRow>
+      </PanelSection>
 
       <PanelSection title={t("panel.offset")}>
         <PanelSectionRow>
@@ -319,17 +339,6 @@ function Content() {
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
-
-      <PanelSection title={t("panel.restore")}>
-        <PanelSectionRow>
-          <ButtonItem layout="below" highlightOnFocus={false} disabled={busy} onClick={onRestore}>
-            {t("action.restore")}
-          </ButtonItem>
-          <div style={{ textAlign: "center", opacity: 0.7, fontSize: "0.85em", paddingTop: "4px" }}>
-            {t("hint.restore")}
-          </div>
-        </PanelSectionRow>
-      </PanelSection>
     </div>
   );
 }
@@ -337,7 +346,6 @@ function Content() {
 export default definePlugin(() => {
   return {
     name: "Time Changer",
-    titleView: <div className={staticClasses.Title}>Time Changer</div>,
     content: <Content />,
     // Steam menus can temporarily hide the QAM. Keep picker state mounted so
     // their selection callbacks do not target an already unmounted Content.

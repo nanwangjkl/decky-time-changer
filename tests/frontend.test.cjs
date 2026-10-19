@@ -98,6 +98,7 @@ async function mount(t, backend = async () => initialStatus) {
     calls, toasts, timers, sliders, button,
     quick: label => renderer.root.findAllByType("DialogButton").find(node => node.props.children === label),
     clock: () => renderer.root.findAllByType("div").find(node => node.props.style?.fontSize === "1.1em").props.children,
+    clockColor: () => renderer.root.findAllByType("div").find(node => node.props.style?.position === "sticky").props.style.color,
     ntp: () => {
       // the status line lives inside the sticky clock block (not the restore hint, which shares its text style)
       const clockBlock = renderer.root.findAllByType("div").find(node => node.props.style?.position === "sticky");
@@ -125,10 +126,12 @@ test("initial load disables the picker; later status reads preserve edited value
     return current;
   });
   assert.ok(app.sliders().every(field => field.props.disabled));
+  assert.equal(app.clockColor(), undefined, "loading must not imply a clock warning");
   assert.equal(app.button("Set to This Time").props.disabled, true);
   await act(async () => app.button("Set to This Time").props.onClick());
   assert.equal(app.calls.filter(call => call.name === "set_time").length, 0);
   await act(async () => pending.resolve(initialStatus));
+  assert.equal(app.clockColor(), "#f2b232", "manual, unsynchronized time is a warning");
   await app.slide(4, 59);
   current = { ...initialStatus, epoch: initialStatus.epoch + 3600 };
   await app.tick(5000);
@@ -153,15 +156,18 @@ test("NTP sync updates the clock and status while the panel stays open", async t
     return current;
   });
   await act(async () => app.button("Restore Real Time (NTP)").props.onClick());
+  assert.equal(app.clockColor(), "#f2b232", "enabling NTP keeps the warning until synchronized");
   current = { ...current, epoch: initialStatus.epoch + 86400, ntp_synced: true };
   await app.tick(5000);
   assert.equal(app.clock(), "2026-02-01 09:15:00");
   assert.equal(app.ntp(), "NTP auto-sync active");
+  assert.equal(app.clockColor(), undefined, "successful synchronization clears the warning");
 });
 
 test("manual mode takes precedence over a retained kernel sync flag", async t => {
   const app = await mount(t, async () => ({ ...initialStatus, ntp_synced: true }));
   assert.equal(app.ntp(), "Manual time · Asia/Shanghai");
+  assert.equal(app.clockColor(), "#f2b232", "a retained sync flag must not hide the manual-mode warning");
 });
 
 test("an old status read cannot overwrite a completed time operation", async t => {
@@ -367,4 +373,37 @@ test("calendar changes, clock ticks, and submission keep the selected date", asy
   await act(async () => app.button("Set to This Time").props.onClick());
   assert.equal(sent, Math.floor(new Date(2027, 1, 21, 23, 59).getTime() / 1000));
   assert.equal(app.sliders()[4].props.value, 59);
+});
+
+test("a successful restore resets the picker draft to the current time", async t => {
+  let current = { ...initialStatus, ntp_enabled: false };
+  const app = await mount(t, async name => {
+    if (name === "restore_time") current = { ...initialStatus, epoch: initialStatus.epoch + 7200, ntp_enabled: true };
+    return current;
+  });
+  await app.slide(0, 2028);
+  await app.slide(1, 2);
+  await app.slide(2, 21);
+  await app.slide(3, 23);
+  await app.slide(4, 59);
+  await act(async () => app.button("Restore Real Time (NTP)").props.onClick());
+  const values = app.sliders().map(field => field.props.value);
+  // the draft follows the epoch reported at the moment of restore (+2h skew,
+  // resync not yet applied) — that moment, and nothing asynchronous after it
+  assert.deepStrictEqual(values, [2026, 1, 31, 11, 15]);
+});
+
+test("a later NTP resync does not touch the picker draft again", async t => {
+  let current = { ...initialStatus, ntp_enabled: false };
+  const app = await mount(t, async name => {
+    if (name === "restore_time") { current = { ...initialStatus, ntp_enabled: true, ntp_synced: false }; return current; }
+    return current;
+  });
+  await act(async () => app.button("Restore Real Time (NTP)").props.onClick());
+  // user drafts a new custom time right after restoring
+  await app.slide(4, 45);
+  // a later poll reports the resync completed with a different epoch
+  current = { ...current, ntp_synced: true, epoch: initialStatus.epoch + 86400 };
+  await app.tick(5000);
+  assert.equal(app.sliders()[4].props.value, 45, "draft survives the async resync");
 });
